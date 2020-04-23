@@ -55,3 +55,25 @@ Tsv (tab-separated) file with a list of all SNPs and probabilities that it came 
 
 3. `<group>_<mode>_<window-len>_stats.csv`  
 Csv file with statistics that shows the fraction of windows assigned to each population.
+
+
+## Modes explanation
+### 1. Bayes
+Probability of assigning snp to population is calculated according to the Bayes formula:  
+$$ P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)} $$
+Here, $P(SNP | Population)$ can be estimated as frequency of SNP in selected Population.
+$ P(Population) = \frac{1}{\#Populations}$ - we assume all populations are equally probable.
+$ P(SNP)$ can be estimated as average frequency of SNP among all populations or samples.
+
+### 2. Softmax
+This is the only mode that can work not only with individuals, but small groups as well.
+Probability of assigning snp to population is calculated by applying softmax function 
+$\sigma(z)_{i}=\frac{e^{z_{i}}}{\sum_{k=1}^{K} e^{z_{k}}}$ to the closeness of 
+frequency in estimated group to frequency in base populations:
+$ |1 - abs(P(SNP | Population) - P(SNP | group))|$
+
+
+### 3. Forward-Backward algorithm
+Using hidden markov models (HMM) approach we can estimate the probability that 
+any open state (SNP) was emitted in each hidden state (actual population).
+We use Forward-Backward algorithm on windows of selected length. The windows are assumed independent.
