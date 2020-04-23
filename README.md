@@ -60,7 +60,7 @@ Csv file with statistics that shows the fraction of windows assigned to each pop
 ## Modes explanation
 ### 1. Bayes
 Probability of assigning snp to population is calculated according to the Bayes formula:  
-$$ P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)} $$
+<img src="https://render.githubusercontent.com/render/math?math=P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)}">
 Here, $P(SNP | Population)$ can be estimated as frequency of SNP in selected Population.
 $ P(Population) = \frac{1}{\#Populations}$ - we assume all populations are equally probable.
 $ P(SNP)$ can be estimated as average frequency of SNP among all populations or samples.
