@@ -7,7 +7,9 @@ import pandas as pd
 import numpy as np
 
 from pathlib import Path
+from copy import deepcopy
 from collections import Counter
+from scipy.special import softmax
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -42,7 +44,7 @@ def emission_prob(snp: str, pop: int, row):
 
 def switch_prob(i: int, j: int):
     """Probability of hidden state change from i to j"""
-    return state_matrix[i, j]
+    return 2 / (N_POPS + 1) if i == j else 1 / (N_POPS + 1)
 
 
 def fb_chunk(df, ind, outfile):
@@ -100,29 +102,49 @@ def fb_prob(file, outfile, group, win_len=200):
         part += 1
 
         if part % 20 == 0:
-            print(f'Processed {part * win_len} / 121000.')
+            print(f'Processed {part * win_len}.')
+
+
+def softmax_prob(file, outfile, group, scale=5):
+    df = pd.read_csv(file, sep=' ')
+    df[f'AF_{group}'] = pd.to_numeric(df[f'AF_{group}'], errors='coerce').fillna(0.5)
+    n_snp = len(df)
+    with open(outfile, 'w') as f_out:
+        f_out.write('SNP_ID\t' + '\t'.join(POPS) + '\n')
+        for i, row in df.iterrows():
+            snp_id = row['ID']
+            maf = row[f'AF_{group}']
+            prob = row[4:].values.astype(float)
+            p = softmax(scale * (1 - np.abs(prob - maf)))
+            f_out.write(f'{snp_id}\t' + '\t'.join(map(lambda x: f'{x:.2f}', p)) + '\n')
+
+            if i % 10000 == 0:
+                print(f'Processed {i} / {n_snp}.')
 
 
 def bayes_prob(file, outfile, group):
     ind = 'AF_' + group
     df = pd.read_csv(file, sep=' ')
-
+    df[f'AF_{group}'] = pd.to_numeric(df[f'AF_{group}'], errors='coerce').fillna(0.5)
+    n_snp = len(df)
     with open(outfile, 'w') as f_out:
         f_out.write('SNP_ID\t' + '\t'.join(POPS) + '\n')
         for i, row in df.iterrows():
-            p_snp = np.sum(row[5:].astype(float).values) / N_POPS + 0.0001
+            p_snp = np.sum(row[4:].values) / N_POPS + 0.0001
             snp_id = row['ID']
             snp = row[ind]
-            if snp == '1':
-                p = [row[f'AF_{pop}'] / N_POPS / p_snp for pop in POPS]
-            elif snp == '0':
-                p = [(1 - row[f'AF_{pop}']) / N_POPS / (1 - p_snp) for pop in POPS]
-            elif snp == '0.5':
-                p = [(row[f'AF_{pop}'] / p_snp + (1 - row[f'AF_{pop}']) / (1 - p_snp)) / 2 / N_POPS for pop in POPS]
+            if snp == 1.:
+                p = (row[4:].values / N_POPS / p_snp) ** 2
+            elif snp == 0.:
+                p = ((1 - row[4:].values) / N_POPS / (1 - p_snp)) ** 2
+            elif snp == 0.5:
+                p = row[4:].values * (1 - row[4:].values) / (1 - p_snp) / p_snp / (N_POPS ** 2)
             else:
                 continue
 
             f_out.write(f'{snp_id}\t' + '\t'.join(map(lambda x: f'{x:.2f}', p)) + '\n')
+            if i % 10000 == 0:
+                print(f'Processed {i} / {n_snp}.')
 
 
 def process_probabilities(file, output, window_len=300):
@@ -155,8 +177,7 @@ def main(file, win_len, mode, n_threads=4):
     elif mode == 'bayes':
         bayes_prob(input_file, snp_prob_file, group)
     elif mode == 'softmax':
-        print('Not implemented yet(')
-        return
+        softmax_prob(input_file, snp_prob_file, group)
     else:
         print("Incorrect mode, please choose from 'bayes', 'fb', 'softmax'.")
         return
