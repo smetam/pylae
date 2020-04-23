@@ -18,8 +18,8 @@ cat <vcf_file> | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S configs/
 
 In case vcf file is (b)gzipped use samtools tabix.
 
-3. Then use main script.
-Currently supported modes: bayes, fb.
+### Script usage:
+Currently supported modes: bayes, fb, softmax.
 Note: fb is around 20 times slower.
 
 ```bash
@@ -42,3 +42,16 @@ for vcf file with around 120k SNPs.
 |fb   | 20 | ? |  
 |bayes| 1  | ? |
 |softmax| 0.5 | ? |
+
+
+
+### Files explanation
+As a result of the pipeline we get 3 files:
+1. `<group>_<mode>_<window-len>_predictions.csv`   
+Csv file with a list of most probable population in each window.
+
+2. `<group>_<mode>_<window-len>_snp_prob.tsv`   
+Tsv (tab-separated) file with a list of all SNPs and probabilities that it came from each population.
+
+3. `<group>_<mode>_<window-len>_stats.csv`  
+Csv file with statistics that shows the fraction of windows assigned to each population.

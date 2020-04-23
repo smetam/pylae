@@ -168,7 +168,7 @@ def main(file, win_len, mode, n_threads=4):
     base_path = Path(file).parent
 
     input_file = str(file_path)
-    snp_prob_file = f'{base_path}/{group}_{mode}_{win_len}_snp_prob.txt'
+    snp_prob_file = f'{base_path}/{group}_{mode}_{win_len}_snp_prob.tsv'
     prediction_file = f'{base_path}/{group}_{mode}_{win_len}_predictions.csv'
     stats_file = f'{base_path}/{group}_{mode}_{win_len}_stats.csv'
 
