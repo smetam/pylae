@@ -1,6 +1,17 @@
 # pylae
 Python for local ancestry estimation
 
+## Requirements and installation:
+
+* Python 3.5+ is required
+* bcftools
+* (optionally) plink / plink2
+
+Installing python requirements:
+```bash
+pip3 install -r requirements.txt
+```
+## Usage:
 ### Data preparation stage:
 (will be performed by script itself in future)
 
@@ -26,7 +37,7 @@ Note: fb is around 20 times slower.
 python3 src/process_individuals.py --mode fb --window-len 200  <group>.<sample>.txt
 ```
 
-Example pipeline:
+### Example pipeline:
 ```bash
 plink2 --bfile America.QuechuaCandelaria_3.txt_GENO --recode vcf --out America.QuechuaCandelaria_3_GENO
 
@@ -55,6 +66,20 @@ Tsv (tab-separated) file with a list of all SNPs and probabilities that it came 
 
 3. `<group>_<mode>_<window-len>_stats.csv`  
 Csv file with statistics that shows the fraction of windows assigned to each population.
+
+## Algorithm explanation
+Algorithm can be split into 4 stages:  
+* Data preparation 
+* Calculating probabilities of assigning each SNP to populations.  
+   There are 3 modes in which it can be done, they are explained below.
+* Choosing best population for each window with selected length (in SNPs).  
+In this stage we convert probabilities to information with entropy formula:
+-p * log (p). Then this information (I) is summed in each window and the window 
+is assigned to population with max I. Pop = argmax(I)
+* Calculating fraction of windows assigned to each population.
+
+
+Depending on your needs you might need only one file or all of them.
 
 
 ## Modes explanation
