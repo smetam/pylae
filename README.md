@@ -37,7 +37,8 @@ python3 src/process_individuals.py --mode fb --window-len 200  "QuechuaCandelari
 
 ## Estimated performance:
 for vcf file with around 120k SNPs.
-|mode|exec time, m| ? |  
+|mode|exec time, min| ? |  
 |--|--|--|  
 |fb   | 20 | ? |  
 |bayes| 1  | ? |
+|softmax| 0.5 | ? |
