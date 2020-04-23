@@ -60,17 +60,18 @@ Csv file with statistics that shows the fraction of windows assigned to each pop
 ## Modes explanation
 ### 1. Bayes
 Probability of assigning snp to population is calculated according to the Bayes formula:  
-<img src="https://render.githubusercontent.com/render/math?math=P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)}">
-Here, $P(SNP | Population)$ can be estimated as frequency of SNP in selected Population.
-$ P(Population) = \frac{1}{\#Populations}$ - we assume all populations are equally probable.
-$ P(SNP)$ can be estimated as average frequency of SNP among all populations or samples.
+<img src="https://render.githubusercontent.com/render/math?math=P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)}">  
+Here,   
+<img src="https://render.githubusercontent.com/render/math?math=P(SNP | Population)"> can be estimated as frequency of SNP in selected Population.  
+<img src="https://render.githubusercontent.com/render/math?math=P(Population) = \frac{1}{|Populations|}"> - we assume all populations are equally probable.  
+<img src="https://render.githubusercontent.com/render/math?math=P(SNP)"> can be estimated as average frequency of SNP among all populations or samples.  
 
 ### 2. Softmax
 This is the only mode that can work not only with individuals, but small groups as well.
 Probability of assigning snp to population is calculated by applying softmax function 
-$\sigma(z)_{i}=\frac{e^{z_{i}}}{\sum_{k=1}^{K} e^{z_{k}}}$ to the closeness of 
-frequency in estimated group to frequency in base populations:
-$ |1 - abs(P(SNP | Population) - P(SNP | group))|$
+<img src="https://render.githubusercontent.com/render/math?math=\sigma(z)_{i}=\frac{e^{z_{i}}}{\sum_{k=1}^{K} e^{z_{k}}}"> 
+to the closeness of frequency in estimated group to frequency in base populations:
+<img src="https://render.githubusercontent.com/render/math?math=|1 - abs(P(SNP | Population) - P(SNP | group))|">
 
 
 ### 3. Forward-Backward algorithm
