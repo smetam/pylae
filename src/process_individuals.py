@@ -18,18 +18,23 @@ class ModelConfig:
         self.mode = args.mode
         self.win_len = args.window_len
         self.matrix = self._build_matrix(args.transition_matrix, args.distance_matrix)
-        self._init_paths(args.file)
+        self._init_paths(args.file, args.output)
 
-    def _init_paths(self, file):
+    def _init_paths(self, file, output):
         self.file_path = Path(file)
         self.filename = self.file_path.stem
         self.group, self.ind = self.filename.split('.')
-        self.base_path = Path(file).parent
+        self.base_path = Path(output) if output else Path(file).parent
+        self.base_path.mkdir(exist_ok=True, parents=True)
 
         self.input_file = str(self.file_path)
         self.snp_file = f'{self.base_path}/{self.group}_{self.mode}_{self.win_len}_snp_prob.tsv'
         self.prediction_file = f'{self.base_path}/{self.group}_{self.mode}_{self.win_len}_predictions.csv'
         self.stats_file = f'{self.base_path}/{self.group}_{self.mode}_{self.win_len}_stats.csv'
+
+    @property
+    def header(self):
+        return (f"CHROM POS ID AF_{self.group} AF_" + " AF_".join(self.populations)).split()
 
     def _build_matrix(self, transition_matrix, distance_matrix):
         if transition_matrix:
@@ -120,14 +125,14 @@ def fb_chunk(df, ind, outfile, n_pops, matrix):
             f_out.write(f'{snp_id}\t' + '\t'.join(map(lambda x: f'{x:.2f}', line)) + '\n')
 
 
-def fb_prob(file, outfile, group, populations, matrix, win_len=200):
+def fb_prob(file, outfile, group, populations, names, matrix, win_len=200):
     """Apply FB algorithm to input file by chunks"""
     ind = 'AF_' + group
     part = 0
     with open(outfile, 'w') as f_out:
         f_out.write('SNP_ID\t' + '\t'.join(populations) + '\n')
 
-    for df in pd.read_csv(file, sep=' ', chunksize=win_len, dtype={ind: object}):
+    for df in pd.read_csv(file, sep=' ', skiprows=1, names=names, chunksize=win_len, dtype={ind: object}):
         fb_chunk(df, ind, outfile, len(populations), matrix)
         part += 1
 
@@ -135,8 +140,8 @@ def fb_prob(file, outfile, group, populations, matrix, win_len=200):
             print(f'Processed {part * win_len}.')
 
 
-def softmax_prob(file, outfile, group, populations, scale=5):
-    df = pd.read_csv(file, sep=' ')
+def softmax_prob(file, outfile, group, populations, names, scale=5):
+    df = pd.read_csv(file, sep=' ', skiprows=1, names=names)
     df[f'AF_{group}'] = pd.to_numeric(df[f'AF_{group}'], errors='coerce').fillna(0.5)
     n_snp = len(df)
     with open(outfile, 'w') as f_out:
@@ -152,10 +157,10 @@ def softmax_prob(file, outfile, group, populations, scale=5):
                 print(f'Processed {i} / {n_snp}.')
 
 
-def bayes_prob(file, outfile, group, populations):
+def bayes_prob(file, outfile, group, populations, names):
     n_pops = len(populations)
     ind = 'AF_' + group
-    df = pd.read_csv(file, sep=' ')
+    df = pd.read_csv(file, sep=' ', skiprows=1, names=names)
     df[f'AF_{group}'] = pd.to_numeric(df[f'AF_{group}'], errors='coerce').fillna(0.5)
     n_snp = len(df)
     with open(outfile, 'w') as f_out:
@@ -196,11 +201,13 @@ def main(config):
     if config.mode in ['fb', 'hmm']:
 
         fb_prob(config.input_file, config.snp_file, config.group,
-                config.populations, config.matrix, config.win_len)
+                config.populations, config.header, config.matrix, config.win_len)
     elif config.mode == 'bayes':
-        bayes_prob(config.input_file, config.snp_file, config.group, config.populations)
+        bayes_prob(config.input_file, config.snp_file, config.group,
+                   config.populations, config.header)
     elif config.mode == 'softmax':
-        softmax_prob(config.input_file, config.snp_file, config.group, config.populations)
+        softmax_prob(config.input_file, config.snp_file, config.group,
+                     config.populations, config.header)
     else:
         print("Incorrect mode, please choose from 'bayes', 'fb', 'softmax'.")
         return
@@ -216,7 +223,7 @@ def main(config):
     counts = Counter([line.strip() for line in lines])
     res = [(pop, counts[pop] / len(lines)) for pop in config.populations]
     series = pd.Series([x[1] for x in res], index=[x[0] for x in res])
-    series.to_csv(config.stats_file)
+    series.to_csv(config.stats_file, header=False)
     print(f"Overall stats  are available at {config.stats_file}")
 
     print(f'Finished in {time.monotonic() - start_time} sec.')
@@ -226,7 +233,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Input filename")
-    # parser.add_argument("-o", "--output", help="Output directory.", default='../data/')
+    parser.add_argument("-o", "--output", default=None,
+                        help="Output directory. Will be created automatically. "
+                             "If already exists, some files may be modified")
     # parser.add_argument("--n-threads", help="Number of threads to use.", type=int, default=1)
     # parser.add_argument("--convert_vcf", help="Use vcf as an input file. It will be transformed.",
     # action='store_true', default=False)
@@ -244,5 +253,4 @@ if __name__ == '__main__':
         'Oceanian', 'SouthAfrican', 'SouthEastAsian', 'SouthWestAsian', 'SubsaharanAfrican'
     ]
     model_config = ModelConfig(args, populations)
-
     main(model_config)
