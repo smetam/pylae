@@ -1,5 +1,5 @@
 # Usage:
-# python3 process_individuals.py --mode fb --window-len 200  <filename> ...
+# python3 src/process_individuals.py --distance-matrix configs/matrix.csv --mode fb --window-len 200 data/quechua_candelaria/QuechuaCandelaria_3.GA002786.txt
 
 import time
 import argparse
@@ -44,9 +44,13 @@ class ModelConfig:
         else:
             return (np.ones((self.n_pops, self.n_pops)) + np.eye(self.n_pops)) / (self.n_pops + 1)
 
-    def _build_transition_matrix(self, matrix):
-        #TODO:
-        return matrix
+    def _build_transition_matrix(self, a):
+        a_min = np.min(a)
+        a_max = np.max(a)
+        a = (a - a_min) / (a_max - a_min)
+        a = np.exp(-3 * a)
+        a = a / a.sum(axis=0, keepdims=1)
+        return np.around(a, 3)
 
 
 def convert_vcf(file):
