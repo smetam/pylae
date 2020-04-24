@@ -7,28 +7,54 @@ import pandas as pd
 import numpy as np
 
 from pathlib import Path
-from copy import deepcopy
 from collections import Counter
-from scipy.special import softmax
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from scipy.special import softmax, xlogy
 
 
-POPS = sorted([
-    'Mediterranean', 'NativeAmerican', 'NorthEastAsian', 'NorthernEuropean',
-    'Oceanian', 'SouthAfrican', 'SouthEastAsian', 'SouthWestAsian', 'SubsaharanAfrican'
-])
-N_POPS = len(POPS)
-state_matrix = np.array(
-    [[0.2  , 0.09 , 0.094, 0.164, 0.084, 0.083, 0.089, 0.114, 0.083],
-     [0.11 , 0.171, 0.126, 0.11 , 0.095, 0.089, 0.101, 0.108, 0.089],
-     [0.112, 0.123, 0.166, 0.112, 0.096, 0.09 , 0.102, 0.11 , 0.09 ],
-     [0.164, 0.09 , 0.094, 0.2  , 0.084, 0.083, 0.089, 0.114, 0.083],
-     [0.112, 0.104, 0.107, 0.112, 0.161, 0.092, 0.108, 0.11 , 0.092],
-     [0.109, 0.096, 0.099, 0.109, 0.091, 0.172, 0.095, 0.107, 0.123],
-     [0.114, 0.105, 0.109, 0.114, 0.102, 0.092, 0.16 , 0.112, 0.092],
-     [0.128, 0.099, 0.103, 0.128, 0.092, 0.091, 0.099, 0.169, 0.091],
-     [0.109, 0.096, 0.099, 0.109, 0.091, 0.123, 0.095, 0.107, 0.172]]
-)
+class ModelConfig:
+    def __init__(self, args, populations):
+        self.populations = sorted(populations)
+        self.n_pops = len(self.populations)
+        self.mode = args.mode
+        self.win_len = args.window_len
+        self.matrix = self._build_matrix(args.transition_matrix, args.distance_matrix)
+        self._init_paths(args.file)
+
+    def _init_paths(self, file):
+        self.file_path = Path(file)
+        self.filename = self.file_path.stem
+        self.group, self.ind = self.filename.split('.')
+        self.base_path = Path(file).parent
+
+        self.input_file = str(self.file_path)
+        self.snp_file = f'{self.base_path}/{self.group}_{self.mode}_{self.win_len}_snp_prob.tsv'
+        self.prediction_file = f'{self.base_path}/{self.group}_{self.mode}_{self.win_len}_predictions.csv'
+        self.stats_file = f'{self.base_path}/{self.group}_{self.mode}_{self.win_len}_stats.csv'
+
+    def _build_matrix(self, transition_matrix, distance_matrix):
+        if transition_matrix:
+            df = pd.read_csv(transition_matrix, index_col=0)
+            sorted_header = list(sorted(list(df)))
+            return df.sort_index()[sorted_header].values
+        elif distance_matrix:
+            df = pd.read_csv(distance_matrix, index_col=0)
+            sorted_header = list(sorted(list(df)))
+            df = df.sort_index()[sorted_header]
+            return self._build_transition_matrix(df.values)
+        else:
+            return (np.ones((self.n_pops, self.n_pops)) + np.eye(self.n_pops)) / (self.n_pops + 1)
+
+    def _build_transition_matrix(self, matrix):
+        #TODO:
+        return matrix
+
+
+def convert_vcf(file):
+    return file
+
+
+def xlogx(x):
+    return xlogy(x, x)
 
 
 def emission_prob(snp: str, pop: int, row):
@@ -42,20 +68,20 @@ def emission_prob(snp: str, pop: int, row):
     return p + 0.0001
 
 
-def switch_prob(i: int, j: int):
-    """Probability of hidden state change from i to j"""
-    return 2 / (N_POPS + 1) if i == j else 1 / (N_POPS + 1)
+# def switch_prob(i: int, j: int, matrix):
+#     """Probability of hidden state change from i to j"""
+#     return matrix[i, j]
 
 
-def fb_chunk(df, ind, outfile):
+def fb_chunk(df, ind, outfile, n_pops, matrix):
     """Apply Forward-Backward algorithm to a chunk of data with win_len <= 500 nt"""
     n = len(df)
-    a, b = np.zeros((N_POPS, n)), np.zeros((N_POPS, n))
+    a, b = np.zeros((n_pops, n)), np.zeros((n_pops, n))
 
-    start_p = 1 / N_POPS
+    start_p = 1 / n_pops
     a_row = df.iloc[0]
     snp = a_row[ind]
-    for pop_idx in range(N_POPS):
+    for pop_idx in range(n_pops):
         a[pop_idx, 0] = start_p * emission_prob(snp, pop_idx, a_row[4:].values)
         b[pop_idx, n - 1] = 1
 
@@ -63,24 +89,24 @@ def fb_chunk(df, ind, outfile):
         a_row = df.iloc[i]
         a_snp = a_row[ind]
         a_prev_layer = a[:, i - 1]
-        for pop_idx in range(N_POPS):
+        for pop_idx in range(n_pops):
             a[pop_idx, i] = sum(
-                [a_prev_layer[j] * switch_prob(j, pop_idx) * emission_prob(a_snp, pop_idx, a_row[4:].values)
-                 for j in range(N_POPS)]
+                [a_prev_layer[j] * matrix[j, pop_idx] * emission_prob(a_snp, pop_idx, a_row[4:].values)
+                 for j in range(n_pops)]
             )
 
         b_row = df.iloc[n - i]
         b_snp = b_row[ind]
         b_prev_layer = b[:, n - i]
-        for pop_idx in range(N_POPS):
+        for pop_idx in range(n_pops):
             b[pop_idx, n - i - 1] = sum(
-                [b_prev_layer[j] * switch_prob(pop_idx, j) * emission_prob(b_snp, j, b_row[4:].values)
-                 for j in range(N_POPS)]
+                [b_prev_layer[j] * matrix[j, pop_idx] * emission_prob(b_snp, j, b_row[4:].values)
+                 for j in range(n_pops)]
             )
 
-    p = np.zeros((N_POPS, n))
+    p = np.zeros((n_pops, n))
     for i in range(n):
-        for pop_idx in range(N_POPS):
+        for pop_idx in range(n_pops):
             p[pop_idx, i] = a[pop_idx, i] * b[pop_idx, i] / np.sum(a[:, n - 1])
 
     with open(outfile, 'a') as f_out:
@@ -90,27 +116,27 @@ def fb_chunk(df, ind, outfile):
             f_out.write(f'{snp_id}\t' + '\t'.join(map(lambda x: f'{x:.2f}', line)) + '\n')
 
 
-def fb_prob(file, outfile, group, win_len=200):
+def fb_prob(file, outfile, group, populations, matrix, win_len=200):
     """Apply FB algorithm to input file by chunks"""
     ind = 'AF_' + group
     part = 0
     with open(outfile, 'w') as f_out:
-        f_out.write('SNP_ID\t' + '\t'.join(POPS) + '\n')
+        f_out.write('SNP_ID\t' + '\t'.join(populations) + '\n')
 
     for df in pd.read_csv(file, sep=' ', chunksize=win_len, dtype={ind: object}):
-        fb_chunk(df, ind, outfile)
+        fb_chunk(df, ind, outfile, len(populations), matrix)
         part += 1
 
         if part % 20 == 0:
             print(f'Processed {part * win_len}.')
 
 
-def softmax_prob(file, outfile, group, scale=5):
+def softmax_prob(file, outfile, group, populations, scale=5):
     df = pd.read_csv(file, sep=' ')
     df[f'AF_{group}'] = pd.to_numeric(df[f'AF_{group}'], errors='coerce').fillna(0.5)
     n_snp = len(df)
     with open(outfile, 'w') as f_out:
-        f_out.write('SNP_ID\t' + '\t'.join(POPS) + '\n')
+        f_out.write('SNP_ID\t' + '\t'.join(populations) + '\n')
         for i, row in df.iterrows():
             snp_id = row['ID']
             maf = row[f'AF_{group}']
@@ -122,23 +148,24 @@ def softmax_prob(file, outfile, group, scale=5):
                 print(f'Processed {i} / {n_snp}.')
 
 
-def bayes_prob(file, outfile, group):
+def bayes_prob(file, outfile, group, populations):
+    n_pops = len(populations)
     ind = 'AF_' + group
     df = pd.read_csv(file, sep=' ')
     df[f'AF_{group}'] = pd.to_numeric(df[f'AF_{group}'], errors='coerce').fillna(0.5)
     n_snp = len(df)
     with open(outfile, 'w') as f_out:
-        f_out.write('SNP_ID\t' + '\t'.join(POPS) + '\n')
+        f_out.write('SNP_ID\t' + '\t'.join(populations) + '\n')
         for i, row in df.iterrows():
-            p_snp = np.sum(row[4:].values) / N_POPS + 0.0001
+            p_snp = np.sum(row[4:].values) / n_pops + 0.0001
             snp_id = row['ID']
             snp = row[ind]
             if snp == 1.:
-                p = (row[4:].values / N_POPS / p_snp) ** 2
+                p = (row[4:].values / n_pops / p_snp) ** 2
             elif snp == 0.:
-                p = ((1 - row[4:].values) / N_POPS / (1 - p_snp)) ** 2
+                p = ((1 - row[4:].values) / n_pops / (1 - p_snp)) ** 2
             elif snp == 0.5:
-                p = row[4:].values * (1 - row[4:].values) / (1 - p_snp) / p_snp / (N_POPS ** 2)
+                p = row[4:].values * (1 - row[4:].values) / (1 - p_snp) / p_snp / (n_pops ** 2)
             else:
                 continue
 
@@ -147,53 +174,46 @@ def bayes_prob(file, outfile, group):
                 print(f'Processed {i} / {n_snp}.')
 
 
-def process_probabilities(file, output, window_len=300):
+def process_probabilities(file, output, populations, window_len=200):
     result = []
 
     with open(output, 'w') as f_out:
         for df in pd.read_csv(file, sep='\t', index_col=0, chunksize=window_len):
-            s = pd.Series([df[pop].sum() for pop in POPS], index=POPS)
+            s = pd.Series([-xlogx(df[pop].values).sum() for pop in populations], index=populations)
             b = s.idxmax()
             result.append(str(b))
 
         f_out.write('\n'.join(result))
 
 
-def main(file, win_len, mode, n_threads=4):
+def main(config):
     start_time = time.monotonic()
 
-    file_path = Path(file)
-    filename = file_path.stem
-    group, ind = filename.split('.')
-    base_path = Path(file).parent
+    if config.mode in ['fb', 'hmm']:
 
-    input_file = str(file_path)
-    snp_prob_file = f'{base_path}/{group}_{mode}_{win_len}_snp_prob.tsv'
-    prediction_file = f'{base_path}/{group}_{mode}_{win_len}_predictions.csv'
-    stats_file = f'{base_path}/{group}_{mode}_{win_len}_stats.csv'
-
-    if mode in ['fb', 'hmm']:
-        fb_prob(input_file, snp_prob_file, group)
-    elif mode == 'bayes':
-        bayes_prob(input_file, snp_prob_file, group)
-    elif mode == 'softmax':
-        softmax_prob(input_file, snp_prob_file, group)
+        fb_prob(config.input_file, config.snp_file, config.group,
+                config.populations, config.matrix, config.win_len)
+    elif config.mode == 'bayes':
+        bayes_prob(config.input_file, config.snp_file, config.group, config.populations)
+    elif config.mode == 'softmax':
+        softmax_prob(config.input_file, config.snp_file, config.group, config.populations)
     else:
         print("Incorrect mode, please choose from 'bayes', 'fb', 'softmax'.")
         return
 
-    print(f"Probabilities for each SNP are available at {snp_prob_file}")
+    print(f"Probabilities for each SNP are available at {config.snp_file}")
 
-    process_probabilities(snp_prob_file, prediction_file, window_len=win_len)
-    print(f"Predictions for each window are available at {prediction_file}")
+    process_probabilities(config.snp_file, config.prediction_file,
+                          config.populations, window_len=config.win_len)
+    print(f"Predictions for each window are available at {config.prediction_file}")
 
-    with open(prediction_file) as f:
+    with open(config.prediction_file) as f:
         lines = f.readlines()
     counts = Counter([line.strip() for line in lines])
-    res = [(pop, counts[pop] / len(lines)) for pop in counts]
+    res = [(pop, counts[pop] / len(lines)) for pop in config.populations]
     series = pd.Series([x[1] for x in res], index=[x[0] for x in res])
-    series.to_csv(stats_file)
-    print(f"Overall stats  are available at {stats_file}")
+    series.to_csv(config.stats_file)
+    print(f"Overall stats  are available at {config.stats_file}")
 
     print(f'Finished in {time.monotonic() - start_time} sec.')
 
@@ -204,10 +224,21 @@ if __name__ == '__main__':
     parser.add_argument("file", help="Input filename")
     # parser.add_argument("-o", "--output", help="Output directory.", default='../data/')
     # parser.add_argument("--n-threads", help="Number of threads to use.", type=int, default=1)
+    # parser.add_argument("--convert_vcf", help="Use vcf as an input file. It will be transformed.",
+    # action='store_true', default=False)
     parser.add_argument("--window-len", help="Window length to use.", type=int, default=250)
+    parser.add_argument("--transition-matrix", help="Path to transition matrix for HMM in csv format.")
+    parser.add_argument("--distance-matrix", help="Path to distance matrix for HMM in csv format. "
+                                                  "If transition matrix specified this option is ignored.")
     parser.add_argument("--mode", choices=['bayes', 'fb', 'softmax'], default='fb',
                         help="Calculation mode, should be one of 'bayes', 'fb', 'softmax'.")
 
     args = parser.parse_args()
 
-    main(args.file, args.window_len, args.mode.lower())
+    populations = [
+        'Mediterranean', 'NativeAmerican', 'NorthEastAsian', 'NorthernEuropean',
+        'Oceanian', 'SouthAfrican', 'SouthEastAsian', 'SouthWestAsian', 'SubsaharanAfrican'
+    ]
+    model_config = ModelConfig(args, populations)
+
+    main(model_config)
