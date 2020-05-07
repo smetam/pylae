@@ -30,11 +30,10 @@ cat <vcf_file> | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S configs/
 In case vcf file is (b)gzipped use samtools tabix.
 
 ### Script usage:
-Currently supported modes: bayes, fb, softmax.
-Note: fb is around 20 times slower.
+Currently supported mode: bayes.
 
 ```bash
-python3 src/process_individuals.py --mode fb --window-len 200  <group>.<sample>.txt
+python3 src/bayesian_pipeline.py --sample <sample_name> --admixtures <admixture_vectors_file> --window-len 50 <group>.<sample>.txt
 ```
 
 ### Example pipeline:
@@ -43,17 +42,8 @@ plink2 --bfile America.QuechuaCandelaria_3.txt_GENO --recode vcf --out America.Q
 
 cat America.QuechuaCandelaria_3_GENO.vcf | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S vcf_groups.txt -t AF | bcftools query -H -f "%CHROM %POS %ID %AF_QuechuaCandelaria_3 %AF_Mediterranean %AF_NativeAmerican %AF_NorthEastAsian %AF_NorthernEuropean %AF_Oceanian %AF_SouthAfrican %AF_SouthEastAsian %AF_SouthWestAsian %AF_SubsaharanAfrican\n" > "QuechuaCandelaria_3.GA002786.txt"
 
-python3 src/process_individuals.py --mode fb --window-len 200  "QuechuaCandelaria_3.GA002786.txt"
+python3 src/bayesian_pipeline.py --window-len 50  "QuechuaCandelaria_3.GA002786.txt"
 ```
-
-## Estimated performance:
-for vcf file with around 120k SNPs.
-|mode|exec time, min| ? |  
-|--|--|--|  
-|fb   | 20 | ? |  
-|bayes| 1  | ? |
-|softmax| 0.5 | ? |
-
 
 
 ### Files explanation
@@ -67,19 +57,18 @@ Tsv (tab-separated) file with a list of all SNPs and probabilities that it came 
 3. `<group>_<mode>_<window-len>_stats.csv`  
 Csv file with statistics that shows the fraction of windows assigned to each population.
 
+Depending on your needs you might need only one file or all of them.
+
 ## Algorithm explanation
 Algorithm can be split into 4 stages:  
 * Data preparation 
-* Calculating probabilities of assigning each SNP to populations.  
-   There are 3 modes in which it can be done, they are explained below.
+* Calculating probabilities of assigning each SNP to populations using naive bayes algorithm.  
 * Choosing best population for each window with selected length (in SNPs).  
-In this stage we convert probabilities to information with entropy formula:
--p * log (p). Then this information (I) is summed in each window and the window 
+In this slog (p). Then this information (I) is summed in each window and the window 
 is assigned to population with max I. Pop = argmax(I)
 * Calculating fraction of windows assigned to each population.
 
 
-Depending on your needs you might need only one file or all of them.
 
 
 ## Modes explanation
@@ -88,18 +77,6 @@ Probability of assigning snp to population is calculated according to the Bayes 
 <img src="https://render.githubusercontent.com/render/math?math=P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)}">  
 Here,   
 <img src="https://render.githubusercontent.com/render/math?math=P(SNP | Population)"> can be estimated as frequency of SNP in selected Population.  
-<img src="https://render.githubusercontent.com/render/math?math=P(Population) = \frac{1}{|Populations|}"> - we assume all populations are equally probable.  
+<img src="https://render.githubusercontent.com/render/math?math=P(Population) = \frac{1}{|Populations|}"> - we take prior population probabilities from admixture vectors.  
 <img src="https://render.githubusercontent.com/render/math?math=P(SNP)"> can be estimated as average frequency of SNP among all populations or samples.  
 
-### 2. Softmax
-This is the only mode that can work not only with individuals, but small groups as well.
-Probability of assigning snp to population is calculated by applying softmax function 
-<img src="https://render.githubusercontent.com/render/math?math=\sigma(z)_{i}=\frac{e^{z_{i}}}{\sum_{k=1}^{K} e^{z_{k}}}"> 
-to the closeness of frequency in estimated group to frequency in base populations:
-<img src="https://render.githubusercontent.com/render/math?math=|1 - abs(P(SNP | Population) - P(SNP | group))|">
-
-
-### 3. Forward-Backward algorithm
-Using hidden markov models (HMM) approach we can estimate the probability that 
-any open state (SNP) was emitted in each hidden state (actual population).
-We use Forward-Backward algorithm on windows of selected length. The windows are assumed independent.

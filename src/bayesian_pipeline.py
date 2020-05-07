@@ -1,5 +1,5 @@
 # Usage:
-# python3 src/process_individuals.py --distance-matrix configs/matrix.csv --mode fb --window-len 200 data/quechua_candelaria/QuechuaCandelaria_3.GA002786.txt
+# python3 src/bayesian_pipeline.py --sample GA000000 --admixtures configs/admixtures.csv --window-len 100 data/QuechuaCandelaria_3.GA002786.txt
 
 import time
 import argparse
@@ -19,15 +19,18 @@ class ModelConfig:
         self.n_pops = len(self.populations)
         self.mode = 'bayes'
         self.window_len = args.window_len
-        self.admixtures_file = args.admixtures
-        self._init_paths(args.file, args.output)
+        self._init_paths(args.file, args.output, args.sample)
+        self._set_admixtures(args.admixtures)
         self.start_time = time.monotonic()
 
-    def _init_paths(self, file, output):
+    def _init_paths(self, file, output, sample):
         self.file_path = Path(file)
         self.filename = self.file_path.stem
-        self.group, sample = self.filename.split('.')
-        self.sample = args.sample or sample
+        if sample:
+            self.sample = sample
+        else:
+            self.group, self.sample = self.filename.split('.')
+
         self.base_path = Path(output) if output else Path(file).parent
         self.base_path.mkdir(exist_ok=True, parents=True)
 
@@ -36,6 +39,15 @@ class ModelConfig:
         self.prediction_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_predictions.csv'
         self.results_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_result.csv'
         self.stats_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_stats.csv'
+
+    def _set_admixtures(self, admixtures_file):
+        if admixtures_file:
+            self.admixtures_file = admixtures_file
+            df = pd.read_csv(self.admixtures_file, sep=',', index_col=0)
+            self.admixtures = df.loc[self.sample, :]
+        else:
+            self.admixtures_file = None
+            self.admixtures = pd.Series([1/self.n_pops] * self.n_pops, index=self.populations)
 
     @property
     def header(self):
@@ -94,8 +106,7 @@ def process_probabilities(config):
     result = []
     q = 0
     prev = None
-    df = pd.read_csv(config.admixtures_file, sep=',', index_col=0)
-    pop_prob = df.loc[config.sample, :]
+    pop_prob = config.admixtures
 
     for df in pd.read_csv(config.snp_file, sep='\t', chunksize=config.window_len, dtype={"CHROM": int, "POS": int}):
         chrom_start = df.iloc[0, 0]
@@ -173,7 +184,7 @@ if __name__ == '__main__':
                         help="Sample name. If not specified will be inferred form input filename")
     parser.add_argument("--window-len", help="Window length to use.", type=int, default=250)
     parser.add_argument("--admixtures", help="Csv file with admixture vectors for sample.",
-                        type=str, default='configs/admixtures.csv')
+                        type=str, default=None)
 
     args = parser.parse_args()
 
@@ -182,11 +193,11 @@ if __name__ == '__main__':
     #     'Oceanian', 'SouthAfrican', 'SouthEastAsian', 'SouthWestAsian', 'SubsaharanAfrican'
     # ]
 
-    populations = [
+    population_list = [
         'Amazonian', 'Andamanese', 'Austronesian', 'BrazilianYanomami', 'Dravidian', 'EastAsian', 'EastIndian',
         'Eskimo', 'Malaysian', 'NearEastern', 'NorthernEuropean', 'Papuan', 'PapuanBaining', 'PlillippinoNegrito',
         'SouthAmerican_Chaco', 'SouthAmerican_Quechua', 'SubSaharanAfrican', 'Yeniseyan'
     ]
 
-    model_config = ModelConfig(args, populations)
+    model_config = ModelConfig(args, population_list)
     main(model_config)
