@@ -35,7 +35,7 @@ class ModelConfig:
         self.base_path.mkdir(exist_ok=True, parents=True)
 
         self.input_file = str(self.file_path)
-        self.snp_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_snp_prob.tsv'
+        self.snp_file = f'{self.base_path}/{self.sample}_{self.mode}_snp_prob.tsv'
         self.prediction_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_predictions.csv'
         self.results_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_result.csv'
         self.stats_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_stats.csv'
@@ -137,7 +137,10 @@ def calculate_stats(config):
     res = [(pop, counts[pop] / len(lines)) for pop in config.populations]
 
     series = pd.Series([x[1] for x in res], index=[x[0] for x in res])
-    series.to_csv(config.stats_file, header=False)
+    # series.to_csv(config.stats_file, header=False)
+    df = pd.DataFrame({'Predicted': series, 'Prior': config.admixtures})
+    df.to_csv(config.stats_file, sep='\t')
+    print('Total error: ', np.sum((df['Predicted'] - df['Prior']) ** 2))
     print(f"Overall stats are available at {config.stats_file}")
 
 
@@ -150,7 +153,7 @@ def merge_windows(config):
             record = Record(*line.strip().split(','))
             if prev_record.chrom == record.chrom \
                     and prev_record.prediction == record.prediction:
-                conf = float(prev_record.confidence) * float(record.confidence)
+                conf = round(float(prev_record.confidence) * float(record.confidence), 5)
                 prev_record = Record(record.chrom, prev_record.start, record.end, conf, record.prediction)
             else:
                 res.append(f'{prev_record.chrom},{prev_record.start},{prev_record.end},'
@@ -162,7 +165,8 @@ def merge_windows(config):
 
 def main(config):
 
-    run_bayes(config)
+    if not Path(config.snp_file).exists():
+        run_bayes(config)
 
     process_probabilities(config)
 
