@@ -1,11 +1,13 @@
 # Usage:
-# python3 src/bayesian_pipeline.py --sample GA000000 --admixtures configs/admixtures.csv --window-len 100 data/QuechuaCandelaria_3.GA002786.txt
+# python3 src/bayes_hmm.py --sample GA001371 --window-len 500 data/cdx0.GA001371.txt -o data/res --admixtures configs/admixtures.csv
+
 
 import time
 import argparse
 import pandas as pd
 import numpy as np
 
+from copy import copy
 from pathlib import Path
 from collections import Counter, namedtuple
 
@@ -17,7 +19,7 @@ class ModelConfig:
     def __init__(self, args, populations):
         self.populations = sorted(populations)
         self.n_pops = len(self.populations)
-        self.mode = 'bayes'
+        self.mode = 'bayes_hmm'
         self.window_len = args.window_len
         self._init_paths(args.file, args.output, args.sample)
         self._set_admixtures(args.admixtures)
@@ -35,7 +37,8 @@ class ModelConfig:
         self.base_path.mkdir(exist_ok=True, parents=True)
 
         self.input_file = str(self.file_path)
-        self.snp_file = f'{self.base_path}/{self.sample}_{self.mode}_snp_prob.tsv'
+        self.snp_file = f'{self.base_path}/{self.sample}_bayes_snp_prob.tsv'
+        self.hmm_input_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_viterbi_input.csv'
         self.prediction_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_predictions.csv'
         self.results_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_result.csv'
         self.stats_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_stats.csv'
@@ -81,53 +84,73 @@ def run_bayes(config, alpha=0.0001):
     print(f"Probabilities for each SNP are available at {config.snp_file}")
 
 
-def solve_region_smoothed(df, populations, pop_prob, prev, chrom, alpha=100):
+def solve_region_smoothed(df, populations, pop_prob, chrom, alpha=100):
     start = df.iloc[0, 1]
     end = df.iloc[-1, 1]
-    s = pd.Series([np.log(df[pop].values).sum()
-                   + np.log(pop_prob[pop] / (1 + alpha) if pop != prev else (pop_prob[pop] + alpha) / (1 + alpha))
-                   for pop in populations], index=populations)
-    first, second = sorted(s.nlargest(2))
-    best = s.idxmax()
-    return f'{chrom},{start},{end},{first/second:.5f},{best}', best
-
-
-def solve_region(df, populations, pop_prob, prev, chrom):
-    start = df.iloc[0, 1]
-    end = df.iloc[-1, 1]
-    s = pd.Series([np.log(df[pop].values).sum() + np.log(pop_prob[pop])
-                   for pop in populations], index=populations)
-    first, second = sorted(s.nlargest(2))
-    best = s.idxmax()
-    return f'{chrom},{start},{end},{first/second:.5f},{best}', best
+    return f'{chrom},{start},{end},' + ','.join([f'{np.log(df[pop].values).sum() + np.log(pop_prob[pop]):.2f}'
+                                                for pop in populations])
 
 
 def process_probabilities(config):
     result = []
     q = 0
-    prev = None
     pop_prob = config.admixtures
 
     for df in pd.read_csv(config.snp_file, sep='\t', chunksize=config.window_len, dtype={"CHROM": int, "POS": int}):
         chrom_start = df.iloc[0, 0]
         chrom_end = df.iloc[-1, 0]
         if chrom_start == chrom_end:
-            rec, prev = solve_region(df, config.populations, pop_prob, prev, chrom_start)
+            rec = solve_region_smoothed(df, config.populations, pop_prob, chrom_start)
             result.append(rec)
         else:
             for chrom in (chrom_start, chrom_end):
                 tdf = df[df['CHROM'] == chrom]
-                rec, prev = solve_region(tdf, config.populations, pop_prob, prev, chrom)
+                rec = solve_region_smoothed(tdf, config.populations, pop_prob, chrom)
                 result.append(rec)
 
         q += 1
         if q % 1000 == 0:
             print(q, 'windows processed.')
 
-    with open(config.prediction_file, 'w') as f_out:
+    with open(config.hmm_input_file, 'w') as f_out:
         f_out.write('\n'.join(result))
 
     print(pop_prob)
+
+
+def run_viterbi(config, alpha=1):
+    df = pd.read_csv(config.hmm_input_file, names=['chrom', 'start', 'end'] + config.populations)
+    n = len(df)
+    d = []
+    line = np.zeros(config.n_pops)
+    new_line = copy(line)
+    last = np.arange(config.n_pops)
+
+    for i, row in df.iterrows():
+
+        for j in range(config.n_pops):
+            transition_penalty = np.log(np.ones(config.n_pops) / (config.n_pops + alpha))
+            transition_penalty[j] = np.log((1 + alpha) / (config.n_pops + alpha))
+            emission = row.values[j + 3]
+
+            p = line + transition_penalty + emission
+            # p = line + emission
+            index = np.argmax(p)
+            new_line[j] = p[index]
+            last[j] = index
+
+        d.append(copy(last))
+        line = copy(new_line)
+
+    index = np.argmax(line)
+    trail = [config.populations[index]]
+    for i in range(n - 1):
+        index = d.pop()[index]
+        trail.append(config.populations[index])
+    df['trail'] = list(reversed(trail))
+    df['conf'] = 1
+
+    df[['chrom', 'start', 'end', 'conf', 'trail']].to_csv(config.prediction_file, header=False, index=False)
 
 
 def calculate_stats(config):
@@ -159,6 +182,9 @@ def merge_windows(config):
                 res.append(f'{prev_record.chrom},{prev_record.start},{prev_record.end},'
                            f'{prev_record.confidence},{prev_record.prediction}')
                 prev_record = record
+    res.append(f'{prev_record.chrom},{prev_record.start},{prev_record.end},'
+               f'{prev_record.confidence},{prev_record.prediction}')
+
     with open(config.results_file, 'w') as f_out:
         f_out.write('\n'.join(res))
 
@@ -168,7 +194,10 @@ def main(config):
     if not Path(config.snp_file).exists():
         run_bayes(config)
 
-    process_probabilities(config)
+    if not Path(config.hmm_input_file).exists():
+        process_probabilities(config)
+
+    run_viterbi(config)
 
     calculate_stats(config)
 
