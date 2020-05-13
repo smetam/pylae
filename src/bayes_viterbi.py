@@ -1,5 +1,5 @@
 # Usage:
-# python3 src/bayes_hmm.py --sample GA001371 --window-len 500 data/cdx0.GA001371.txt -o data/res --admixtures configs/admixtures.csv
+# python3 src/bayes_viterbi.py --sample GA001371 --window-len 500 data/cdx0.GA001371.txt -o data/res --admixtures configs/admixtures.csv
 
 
 import time
@@ -19,7 +19,7 @@ class ModelConfig:
     def __init__(self, args, populations):
         self.populations = sorted(populations)
         self.n_pops = len(self.populations)
-        self.mode = 'bayes_hmm'
+        self.mode = 'bayes_viterbi'
         self.window_len = args.window_len
         self._init_paths(args.file, args.output, args.sample)
         self._set_admixtures(args.admixtures)
@@ -37,11 +37,11 @@ class ModelConfig:
         self.base_path.mkdir(exist_ok=True, parents=True)
 
         self.input_file = str(self.file_path)
-        self.snp_file = f'{self.base_path}/{self.sample}_bayes_snp_prob.tsv'
-        self.hmm_input_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_viterbi_input.csv'
-        self.prediction_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_predictions.csv'
-        self.results_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_result.csv'
-        self.stats_file = f'{self.base_path}/{self.sample}_{self.mode}_{self.window_len}_stats.csv'
+        self.snp_file = '{}/{}_bayes_snp_prob.tsv'.format(self.base_path, self.sample)
+        self.hmm_input_file = '{}/{}_{}_{}_viterbi_input.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
+        self.prediction_file = '{}/{}_{}_{}_predictions.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
+        self.results_file = '{}/{}_{}_{}_result.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
+        self.stats_file = '{}/{}_{}_{}_stats.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
 
     def _set_admixtures(self, admixtures_file):
         if admixtures_file:
@@ -54,7 +54,7 @@ class ModelConfig:
 
     @property
     def header(self):
-        return (f"CHROM POS AF_{self.sample} AF_" + " AF_".join(self.populations)).split()
+        return ("CHROM POS AF_{} AF_".format(self.sample) + " AF_".join(self.populations)).split()
 
 
 def run_bayes(config, alpha=0.0001):
@@ -67,7 +67,7 @@ def run_bayes(config, alpha=0.0001):
     with open(config.snp_file, 'w') as f_out:
         f_out.write('CHROM\tPOS\t' + '\t'.join(config.populations) + '\n')
         for i, row in df.iterrows():
-            snp_id = f"{int(row['CHROM'])}\t{int(row['POS'])}"
+            snp_id = "{}\t{}".format(int(row['CHROM']), int(row['POS']))
             snp = row[sample_frequency]
             if snp > 0.99:
                 p = (row[3:].values ** 2 + alpha) / (1 + n_pops * alpha)
@@ -76,19 +76,19 @@ def run_bayes(config, alpha=0.0001):
             else:
                 p = (2 * row[3:].values * (1 - row[3:].values) + alpha) / (1 + n_pops * alpha)
 
-            f_out.write(f'{snp_id}\t' + '\t'.join(map(lambda x: f'{x:.6f}', p / np.sum(p))) + '\n')
+            f_out.write(str(snp_id) + '\t' + '\t'.join(map(lambda x: str(round(x, 6)), p / np.sum(p))) + '\n')
 
             if i % 100000 == 0:
-                print(f'Processed {i} / {n_snp}.')
+                print('Processed {} / {}.'.format(i, n_snp))
 
-    print(f"Probabilities for each SNP are available at {config.snp_file}")
+    print("Probabilities for each SNP are available at {}".format(config.snp_file))
 
 
 def solve_region_smoothed(df, populations, pop_prob, chrom, alpha=100):
     start = df.iloc[0, 1]
     end = df.iloc[-1, 1]
-    return f'{chrom},{start},{end},' + ','.join([f'{np.log(df[pop].values).sum() + np.log(pop_prob[pop]):.2f}'
-                                                for pop in populations])
+    prob = [str(np.round(np.log(df[pop].values).sum() + np.log(pop_prob[pop]), 2)) for pop in populations]
+    return '{},{},{},'.format(chrom, start, end) + ','.join(prob)
 
 
 def process_probabilities(config):
@@ -164,7 +164,7 @@ def calculate_stats(config):
     df = pd.DataFrame({'Predicted': series, 'Prior': config.admixtures})
     df.to_csv(config.stats_file, sep='\t')
     print('Total error: ', np.sum((df['Predicted'] - df['Prior']) ** 2))
-    print(f"Overall stats are available at {config.stats_file}")
+    print("Overall stats are available at ", config.stats_file)
 
 
 def merge_windows(config):
@@ -179,11 +179,11 @@ def merge_windows(config):
                 conf = round(float(prev_record.confidence) * float(record.confidence), 5)
                 prev_record = Record(record.chrom, prev_record.start, record.end, conf, record.prediction)
             else:
-                res.append(f'{prev_record.chrom},{prev_record.start},{prev_record.end},'
-                           f'{prev_record.confidence},{prev_record.prediction}')
+                res.append('{},{},{},{},{}'.format(prev_record.chrom, prev_record.start, prev_record.end,
+                                                   prev_record.confidence, prev_record.prediction))
                 prev_record = record
-    res.append(f'{prev_record.chrom},{prev_record.start},{prev_record.end},'
-               f'{prev_record.confidence},{prev_record.prediction}')
+    res.append('{},{},{},{},{}'.format(prev_record.chrom, prev_record.start, prev_record.end,
+                                       prev_record.confidence, prev_record.prediction))
 
     with open(config.results_file, 'w') as f_out:
         f_out.write('\n'.join(res))
@@ -203,7 +203,7 @@ def main(config):
 
     merge_windows(config)
 
-    print(f'Finished in {time.monotonic() - config.start_time} sec.')
+    print('Finished in {} sec.'.format(time.monotonic() - config.start_time))
 
 
 if __name__ == '__main__':
