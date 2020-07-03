@@ -6,7 +6,10 @@ import time
 import argparse
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.collections as mcol
 
+from matplotlib import path
 from copy import copy
 from pathlib import Path
 from collections import Counter, namedtuple
@@ -17,9 +20,10 @@ Record = namedtuple('Record', ('chrom', 'start', 'end', 'confidence', 'predictio
 
 class ModelConfig:
     def __init__(self, args, populations):
-        self.populations = sorted(populations)
+        self.populations = populations
         self.n_pops = len(self.populations)
         self.mode = 'bayes_viterbi'
+        self.plot = args.plot
         self.window_len = args.window_len
         self._init_paths(args.file, args.output, args.sample)
         self._set_admixtures(args.admixtures)
@@ -42,6 +46,7 @@ class ModelConfig:
         self.prediction_file = '{}/{}_{}_{}_predictions.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
         self.results_file = '{}/{}_{}_{}_result.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
         self.stats_file = '{}/{}_{}_{}_stats.csv'.format(self.base_path, self.sample, self.mode, self.window_len)
+        self.plot_file = '{}/{}_{}_{}_plot.png'.format(self.base_path, self.sample, self.mode, self.window_len)
 
     def _set_admixtures(self, admixtures_file):
         if admixtures_file:
@@ -163,7 +168,7 @@ def calculate_stats(config):
     # series.to_csv(config.stats_file, header=False)
     df = pd.DataFrame({'Predicted': series, 'Prior': config.admixtures})
     df.to_csv(config.stats_file, sep='\t')
-    print('Total error: ', np.sum((df['Predicted'] - df['Prior']) ** 2))
+    print('Total error: ', np.sum((df['Predicted'] - df['Prior']) ** 2) / len(df['Predicted']))
     print("Overall stats are available at ", config.stats_file)
 
 
@@ -189,6 +194,75 @@ def merge_windows(config):
         f_out.write('\n'.join(res))
 
 
+def plot_rects(anc, chrom, start, stop, pop_order, colors, ax, chrX=False, conf=1):
+    conf *= 0.7
+    verts = [
+            (float(start), chrom),  # left, bottom
+            (float(start), chrom + conf),  # left, top
+            (float(stop), chrom + conf),  # right, top
+            (float(stop), chrom),  # right, bottom
+            (0, 0),  # ignored
+        ]
+
+    codes = [
+        path.Path.MOVETO,
+        path.Path.LINETO,
+        path.Path.LINETO,
+        path.Path.LINETO,
+        path.Path.CLOSEPOLY,
+    ]
+
+    clip_path = path.Path(verts, codes)
+    if anc in pop_order:
+        col = mcol.PathCollection([clip_path], facecolor=colors[pop_order.index(anc)], linewidths=0)
+    else:
+        col = mcol.PathCollection([clip_path], facecolor=colors[-1], linewidths=0)
+    return col
+
+
+def plot_admixture(admix_file, stats_file=None, save_name=None):
+    df = pd.read_csv(admix_file, header=None,
+                     names=['chr', 'start', 'end', 'conf', 'pop'])
+    if stats_file:
+        stat_df = pd.read_csv(stats_file, sep='\t', index_col=0)
+        largest_pops = list(stat_df['Predicted'].nlargest(5).index)
+        largest_pops.append('Other')
+    else:
+        largest_pops = list(df['pop'].unique())
+
+    colors = ['#4ECBF5', '#368CA8', '#F5AF4E', '#A86636', '#383838', '#C7C7C7',
+              '#F2EB61']
+    fig = plt.figure(figsize=(11, 11))
+    ax = fig.add_subplot(111)
+    ax.set_xlim(-5, 260)
+    ax.set_ylim(23, 0)
+    plt.yticks(range(1, 24))
+    plt.xlabel('Genomic position (Mbp)')
+    plt.ylabel('Chromosome')
+    plt.title('Local ancestry')
+
+    p = []
+    for i in range(len(largest_pops)):
+        p.append(plt.Rectangle((0, 0), 1, 1, color=colors[i]))
+    p.append(plt.Rectangle((0, 0), 1, 1, color='k'))
+    labs = list(largest_pops)
+
+    leg = ax.legend(p, labs, loc=4, fancybox=True)
+    leg.get_frame().set_alpha(0)
+
+    for i, row in df.iterrows():
+        popul = row['pop']
+        if popul not in largest_pops:
+            popul = 'Other'
+        col = plot_rects(popul, row['chr'], row['start'] / 10 ** 6,
+                         row['end'] / 10 ** 6, largest_pops, colors, ax)
+        ax.add_collection(col)
+    if save_name:
+        fig.savefig(save_name)
+    print("Admixture plot available at ", save_name)
+    # plt.show()
+
+
 def main(config):
 
     if not Path(config.snp_file).exists():
@@ -203,6 +277,10 @@ def main(config):
 
     merge_windows(config)
 
+    if config.plot:
+        plot_admixture(config.results_file, stats_file=config.stats_file,
+                       save_name=config.plot_file)
+
     print('Finished in {} sec.'.format(time.monotonic() - config.start_time))
 
 
@@ -216,21 +294,18 @@ if __name__ == '__main__':
     parser.add_argument("--sample", type=str, default=None,
                         help="Sample name. If not specified will be inferred form input filename")
     parser.add_argument("--window-len", help="Window length to use.", type=int, default=250)
+    parser.add_argument("--plot", help="Visualize results", default=False, action='store_true')
     parser.add_argument("--admixtures", help="Csv file with admixture vectors for sample.",
                         type=str, default=None)
 
     args = parser.parse_args()
 
-    # populations = [
-    #     'Mediterranean', 'NativeAmerican', 'NorthEastAsian', 'NorthernEuropean',
-    #     'Oceanian', 'SouthAfrican', 'SouthEastAsian', 'SouthWestAsian', 'SubsaharanAfrican'
-    # ]
+    with open(args.file, 'r') as f_in:
+        header = f_in.readline()
+    s = header.split()[4:]
+    pop_list = [x.split('AF_')[1] for x in s]
+    print('Population list is inferred from header, using following populations: ')
+    print(", ".join(pop_list))
 
-    population_list = [
-        'Amazonian', 'Andamanese', 'Austronesian', 'BrazilianYanomami', 'Dravidian', 'EastAsian', 'EastIndian',
-        'Eskimo', 'Malaysian', 'NearEastern', 'NorthernEuropean', 'Papuan', 'PapuanBaining', 'PlillippinoNegrito',
-        'SouthAmerican_Chaco', 'SouthAmerican_Quechua', 'SubSaharanAfrican', 'Yeniseyan'
-    ]
-
-    model_config = ModelConfig(args, population_list)
+    model_config = ModelConfig(args, pop_list)
     main(model_config)
