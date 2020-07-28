@@ -67,7 +67,7 @@ def run_bayes(config, alpha=0.0001):
     sample_frequency = 'AF_' + config.sample
     df = pd.read_csv(config.input_file, sep=' ', skiprows=1, names=config.header)
     df[sample_frequency] = pd.to_numeric(df[sample_frequency], errors='coerce').fillna(0)
-    print(df.info())
+    # print(df.info())
     n_snp = len(df)
     with open(config.snp_file, 'w') as f_out:
         f_out.write('CHROM\tPOS\t' + '\t'.join(config.populations) + '\n')
@@ -100,8 +100,11 @@ def process_probabilities(config):
     result = []
     q = 0
     pop_prob = config.admixtures
+    df_last_row = None
+    for df_chunk in pd.read_csv(config.snp_file, sep='\t', chunksize=config.window_len, dtype={"CHROM": int, "POS": int}):
+        df = df_chunk if df_last_row is None else df_last_row.append(df_chunk)
+        df_last_row = df.tail(1)
 
-    for df in pd.read_csv(config.snp_file, sep='\t', chunksize=config.window_len, dtype={"CHROM": int, "POS": int}):
         chrom_start = df.iloc[0, 0]
         chrom_end = df.iloc[-1, 0]
         if chrom_start == chrom_end:
@@ -120,7 +123,7 @@ def process_probabilities(config):
     with open(config.hmm_input_file, 'w') as f_out:
         f_out.write('\n'.join(result))
 
-    print(pop_prob)
+    # print(pop_prob)
 
 
 def run_viterbi(config, alpha=1):
