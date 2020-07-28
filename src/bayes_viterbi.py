@@ -22,8 +22,9 @@ class ModelConfig:
     def __init__(self, args, populations):
         self.populations = populations
         self.n_pops = len(self.populations)
-        self.mode = 'bayes_viterbi'
         self.plot = args.plot
+        self.merge = args.merge
+        self.mode = 'bayes_viterbi_merged' if self.merge else 'bayes_viterbi'
         self.window_len = args.window_len
         self._init_paths(args.file, args.output, args.sample)
         self._set_admixtures(args.admixtures)
@@ -102,8 +103,9 @@ def process_probabilities(config):
     pop_prob = config.admixtures
     df_last_row = None
     for df_chunk in pd.read_csv(config.snp_file, sep='\t', chunksize=config.window_len, dtype={"CHROM": int, "POS": int}):
+
         df = df_chunk if df_last_row is None else df_last_row.append(df_chunk)
-        df_last_row = df.tail(1)
+        df_last_row = df.tail(1) if config.merge else None
 
         chrom_start = df.iloc[0, 0]
         chrom_end = df.iloc[-1, 0]
@@ -298,6 +300,8 @@ if __name__ == '__main__':
                         help="Sample name. If not specified will be inferred form input filename")
     parser.add_argument("--window-len", help="Window length to use.", type=int, default=250)
     parser.add_argument("--plot", help="Visualize results", default=False, action='store_true')
+    parser.add_argument("--merge", "-m", help="Use border SNP in both windows to fill gaps between windows",
+                        default=False, action='store_true')
     parser.add_argument("--admixtures", help="Csv file with admixture vectors for sample.",
                         type=str, default=None)
 
