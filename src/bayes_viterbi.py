@@ -309,7 +309,10 @@ if __name__ == '__main__':
 
     with open(args.file, 'r') as f_in:
         header = f_in.readline()
-    s = header.split()[4:]
+    if header.startswith('# '):
+        s = header.split()[4:]
+    else:
+        s = header.split()[3:]
     pop_list = [x.split('AF_')[1] for x in s]
     print('Population list is inferred from header, using following populations: ')
     print(", ".join(pop_list))
