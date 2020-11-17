@@ -80,3 +80,7 @@ Here,
 <img src="https://render.githubusercontent.com/render/math?math=P(Population) = \frac{1}{|Populations|}"> - we take prior population probabilities from admixture vectors.  
 <img src="https://render.githubusercontent.com/render/math?math=P(SNP)"> can be estimated as average frequency of SNP among all populations or samples.  
 
+
+
+## Preprint about the method
+https://www.biorxiv.org/content/10.1101/2020.11.13.380105v1
