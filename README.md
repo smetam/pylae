@@ -1,4 +1,4 @@
-# pylae
+# PyLAE
 Python for local ancestry estimation
 
 ## Requirements and installation:
