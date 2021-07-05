@@ -30,19 +30,29 @@ cat <vcf_file> | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S configs/
 In case vcf file is (b)gzipped use samtools tabix.
 
 ### Script usage:
-Currently supported mode: bayes.
+Currently supported modes: 
+#### Bayes:
 
 ```bash
 python3 src/bayesian_pipeline.py --sample <sample_name> --admixtures <admixture_vectors_file> --window-len 50 <group>.<sample>.txt
 ```
+#### Bayes viterbi (used in the paper):
+
+```
+python3 src/bayes_viterbi.py --sample <sample_name> --admixtures <admixture_vectors_file> --window-len 50 <group>.<sample>.txt -m 
+
+```
+
+`-m` option is used to switch "merged" window mode (windows will overlap by 1 SNP)
+
 
 ### Example pipeline:
 ```bash
-plink2 --bfile America.QuechuaCandelaria_3.txt_GENO --recode vcf --out America.QuechuaCandelaria_3_GENO
+plink2 --bfile sample.txt_GENO --recode vcf --out sample
 
-cat America.QuechuaCandelaria_3_GENO.vcf | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S vcf_groups.txt -t AF | bcftools query -H -f "%CHROM %POS %ID %AF_QuechuaCandelaria_3 %AF_Mediterranean %AF_NativeAmerican %AF_NorthEastAsian %AF_NorthernEuropean %AF_Oceanian %AF_SouthAfrican %AF_SouthEastAsian %AF_SouthWestAsian %AF_SubsaharanAfrican\n" > "QuechuaCandelaria_3.GA002786.txt"
+cat sample.vcf | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S vcf_groups.txt -t AF | bcftools query -H -f "%CHROM %POS %ID %AF_QuechuaCandelaria_3 %AF_Mediterranean %AF_NativeAmerican %AF_NorthEastAsian %AF_NorthernEuropean %AF_Oceanian %AF_SouthAfrican %AF_SouthEastAsian %AF_SouthWestAsian %AF_SubsaharanAfrican\n" > "population.sample.txt"
 
-python3 src/bayesian_pipeline.py --window-len 50  "QuechuaCandelaria_3.GA002786.txt"
+python3 src/bayesian_pipeline.py --window-len 50  "population.sample.txt"
 ```
 
 
@@ -60,6 +70,19 @@ Csv file with statistics that shows the fraction of windows assigned to each pop
 Depending on your needs you might need only one file or all of them.
 
 ## Algorithm explanation
+
+Using PyLAE with different genomes and/or sets of markers
+A different set of putative ancestral populations or a different set of markers require 
+additional processing. First, we need to collect a database of putatively un-admixed individuals. 
+If there is an existing validated set of ancestry informative features, these markers should run the 
+admixture in supervised mode. For each self-reported ancestry, samples should be clustered 
+based on their admixture profiles to identify subgroups within each self-reported ancestry. These 
+subgroups are then examined using information about the studied population's history, and the 
+most representative subset is retained. Then, putative ancestral populations (from 15 to 20 
+individuals per group) are generated for every ancestry. The validity and stability of the ancestral 
+populations are evaluated using 1) PCA, 2) leave-one-out supervised admixture, and 3) by 
+application of supervised admixture to the original datase
+
 Algorithm can be split into 4 stages:  
 * Data preparation 
 * Calculating probabilities of assigning each SNP to populations using naive bayes algorithm.  
@@ -67,19 +90,6 @@ Algorithm can be split into 4 stages:
 In this slog (p). Then this information (I) is summed in each window and the window 
 is assigned to population with max I. Pop = argmax(I)
 * Calculating fraction of windows assigned to each population.
-
-
-
-
-## Modes explanation
-### 1. Bayes
-Probability of assigning snp to population is calculated according to the Bayes formula:  
-<img src="https://render.githubusercontent.com/render/math?math=P(Population | SNP) = \frac{P(SNP | Population) \cdot P(Population)}{P(SNP)}">  
-Here,   
-<img src="https://render.githubusercontent.com/render/math?math=P(SNP | Population)"> can be estimated as frequency of SNP in selected Population.  
-<img src="https://render.githubusercontent.com/render/math?math=P(Population) = \frac{1}{|Populations|}"> - we take prior population probabilities from admixture vectors.  
-<img src="https://render.githubusercontent.com/render/math?math=P(SNP)"> can be estimated as average frequency of SNP among all populations or samples.  
-
 
 
 ## Preprint about the method
