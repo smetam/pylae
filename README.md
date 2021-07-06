@@ -54,7 +54,7 @@ cat sample.vcf | bcftools view -c 1 -Ou | bcftools +fill-tags -Ou -- -S vcf_grou
 
 python3 src/bayesian_pipeline.py --window-len 50  "population.sample.txt"
 ```
-
+Also, you can find and run the example pipeline from the archive `example_pipeline.tar.gz`
 
 ### Files explanation
 As a result of the pipeline we get 3 files:
