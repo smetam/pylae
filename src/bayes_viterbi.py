@@ -29,6 +29,7 @@ class ModelConfig:
         self._init_paths(args.file, args.output, args.sample)
         self._set_admixtures(args.admixtures)
         self.start_time = time.monotonic()
+        self.viterbi_alpha = args.viterbi_alpha
 
     def _init_paths(self, file, output, sample):
         self.file_path = Path(file)
@@ -128,7 +129,7 @@ def process_probabilities(config):
     # print(pop_prob)
 
 
-def run_viterbi(config, alpha=1):
+def run_viterbi(config):
     df = pd.read_csv(config.hmm_input_file, names=['chrom', 'start', 'end'] + config.populations)
     n = len(df)
     d = []
@@ -139,8 +140,8 @@ def run_viterbi(config, alpha=1):
     for i, row in df.iterrows():
 
         for j in range(config.n_pops):
-            transition_penalty = np.log(np.ones(config.n_pops) / (config.n_pops + alpha))
-            transition_penalty[j] = np.log((1 + alpha) / (config.n_pops + alpha))
+            transition_penalty = np.log(np.ones(config.n_pops) / (config.n_pops + config.viterbi_alpha))
+            transition_penalty[j] = np.log((1 + config.viterbi_alpha) / (config.n_pops + config.viterbi_alpha))
             emission = row.values[j + 3]
 
             p = line + transition_penalty + emission
@@ -304,6 +305,7 @@ if __name__ == '__main__':
                         default=False, action='store_true')
     parser.add_argument("--admixtures", help="Csv file with admixture vectors for sample.",
                         type=str, default=None)
+    parser.add_argument("--viterbi_alpha", help="Regularization parameter for viterbi", default=1., type=float)
 
     args = parser.parse_args()
 
