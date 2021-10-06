@@ -11,7 +11,14 @@ Installing python requirements:
 ```bash
 pip3 install -r requirements.txt
 ```
+
+## System requirements
+
+Approximate runtime on a modern PC \ server is 1 minute for 9 ancestral populations, 120,000 SNPs and a window size of 50. 
+The memory usage (resident) is about 100-110 megabytes (1 process for 1 sample at a time).
+
 ## Usage:
+
 ### Data preparation stage:
 (will be performed by script itself in future)
 
@@ -39,12 +46,12 @@ python3 src/bayesian_pipeline.py --sample <sample_name> --admixtures <admixture_
 #### Bayes viterbi (used in the paper):
 
 ```
-python3 src/bayes_viterbi.py --sample <sample_name> --admixtures <admixture_vectors_file> --window-len 50 <group>.<sample>.txt -m 
+python3 src/bayes_viterbi.py --sample <sample_name> --admixtures <admixture_vectors_file> --window-len 50 <group>.<sample>.txt -m --viterbi-alpha 1
 
 ```
 
 `-m` option is used to switch "merged" window mode (windows will overlap by 1 SNP)
-
+`--viterbi-alpha` is a regularization parameter, according to our tests with 1kG and generated data we recommend `10000` as a starting value for experiments.  
 
 ### Example pipeline:
 ```bash
